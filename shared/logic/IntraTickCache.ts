@@ -58,6 +58,8 @@ export interface IResourceIO {
    actualInput: Map<Material, number>;
    theoreticalOutput: Map<Material, number>;
    actualOutput: Map<Material, number>;
+   /** Resources sent to construction/upgrade sites this tick */
+   constructionInput: Map<Material, number>;
 }
 
 let _cache = new IntraTickCache();
@@ -270,6 +272,21 @@ export function getBuildingsByType(
    return getTypeBuildings(gs).get(building);
 }
 
+/** Recipe input plus the construction/upgrade haul. Returns a copy, the argument is never modified. */
+export function getDeficitInput(
+   io: IResourceIO,
+   theoretical: boolean,
+   includeConstruction: boolean,
+): ReadonlyMap<Material, number> {
+   const input = theoretical ? io.theoreticalInput : io.actualInput;
+   if (!includeConstruction || io.constructionInput.size === 0) {
+      return input;
+   }
+   const result = new Map(input);
+   io.constructionInput.forEach((amount, res) => mapSafeAdd(result, res, amount));
+   return result;
+}
+
 export function getResourceIO(gameState: GameState): IResourceIO {
    if (_cache.resourceIO) return _cache.resourceIO;
 
@@ -278,6 +295,7 @@ export function getResourceIO(gameState: GameState): IResourceIO {
       actualInput: new Map(),
       theoreticalOutput: new Map(),
       actualOutput: new Map(),
+      constructionInput: new Map(Tick.current.constructionConsumptions),
    };
 
    getXyBuildings(gameState).forEach((building, xy) => {

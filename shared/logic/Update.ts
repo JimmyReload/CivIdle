@@ -370,15 +370,21 @@ export function transportAndConsumeResources(
          const builderCapacityPerResource = total / remainingAmount.size;
          remainingAmount.forEach(function transportConstructionUpgradeResources(amount, res) {
             // Each transportation costs 1 worker, and deliver Total (=Builder Capacity x Multiplier) resources
-            transportResource(
+            const requested = clamp(amount, 0, builderCapacityPerResource);
+            const notTransported = transportResource(
                res,
-               clamp(amount, 0, builderCapacityPerResource),
+               requested,
                builderCapacityPerResource,
                xy,
                gs,
                getInputMode(building, gs),
                transportSourceCache,
             );
+            // transportResource returns what it could not transport (no worker, no source)
+            const transported = requested - notTransported;
+            if (transported > 0) {
+               mapSafeAdd(Tick.next.constructionConsumptions, res, transported);
+            }
          });
       }
 
