@@ -1,4 +1,5 @@
 import { assert, test } from "vitest";
+import type { Material } from "../shared/definitions/MaterialDefinitions";
 import type { TechAge } from "../shared/definitions/TechDefinitions";
 import {
    getBuildingCost,
@@ -11,6 +12,12 @@ import { Config } from "../shared/logic/Config";
 import { GameOptions, GameState, SavedGame } from "../shared/logic/GameState";
 import { deserializeSave, serializeSave } from "../shared/logic/GameStateLogic";
 import { initializeGameState } from "../shared/logic/InitializeGameState";
+import {
+   clearIntraTickCache,
+   getDeficitInput,
+   getResourceIO,
+   type IResourceIO,
+} from "../shared/logic/IntraTickCache";
 import { getBuyAmountRange, getTradePercentage } from "../shared/logic/PlayerTradeLogic";
 import {
    getEligibleRank,
@@ -35,6 +42,10 @@ import {
    isAllTechUnlocked,
    isPrerequisiteOf,
 } from "../shared/logic/TechLogic";
+import { EmptyTickData, Tick, freezeTickData } from "../shared/logic/TickLogic";
+import { Transports } from "../shared/logic/Transports";
+import { Planner } from "../shared/logic/TransportSourcePlanner";
+import { transportAndConsumeResources } from "../shared/logic/Update";
 import { makeBuilding } from "../shared/logic/Tile";
 import { fossilDeltaApply, fossilDeltaCreate } from "../shared/thirdparty/FossilDelta";
 import {
@@ -82,6 +93,125 @@ test("TileBitPacking", () => {
    const tile = pointToTile({ x: 13, y: 14 });
    assert.equal(13, (tile >> 16) & 0xffff);
    assert.equal(14, tile & 0xffff);
+});
+
+test("getResourceIO exposes what construction consumed this tick", () => {
+   try {
+      clearIntraTickCache();
+      Tick.current = freezeTickData(EmptyTickData());
+      const gs = new GameState();
+      const xy = pointToTile({ x: 1, y: 1 });
+      const building = makeBuilding({
+         type: "CoalMine",
+         level: 5,
+         desiredLevel: 6,
+         status: "upgrading",
+      });
+      gs.tiles.set(xy, { tile: xy, deposit: {}, explored: true, building });
+
+      // nothing transported yet
+
+      assert.equal(getResourceIO(gs).constructionInput.size, 0);
+
+      // recorded by Update.ts
+      const tick = EmptyTickData();
+      tick.constructionConsumptions.set("Brick", 2.5);
+      tick.constructionConsumptions.set("Lumber", 1);
+      Tick.current = freezeTickData(tick);
+      clearIntraTickCache();
+
+      const io = getResourceIO(gs);
+      assert.equal(io.constructionInput.get("Brick"), 2.5);
+      assert.equal(io.constructionInput.get("Lumber"), 1);
+      assert.equal(io.constructionInput.get("Iron"), undefined);
+      // the deficit reads the construction term only when asked to
+      assert.equal(getDeficitInput(io, true, true).get("Brick"), 2.5);
+      assert.equal(getDeficitInput(io, false, true).get("Brick"), 2.5);
+      assert.equal(getDeficitInput(io, true, false).get("Brick"), undefined);
+
+      // Tabulating must not touch the game state
+      assert.equal(building.suspendedInput.size, 0);
+      assert.equal(Object.keys(building.resources).length, 0);
+      assert.equal(Tick.current.constructionConsumptions.size, 2);
+   } finally {
+      Tick.current = freezeTickData(EmptyTickData());
+      clearIntraTickCache();
+   }
+});
+
+test("construction records what was delivered, not what was requested", () => {
+   const sourceXy = pointToTile({ x: 1, y: 1 });
+   const siteXy = pointToTile({ x: 2, y: 2 });
+   try {
+      clearIntraTickCache();
+      const gs = new GameState();
+      const source = makeBuilding({
+         type: "LumberMill",
+         level: 1,
+         status: "completed",
+         resources: { Lumber: 1 },
+      });
+      const site = makeBuilding({ type: "CoalMine", level: 5, desiredLevel: 6, status: "upgrading" });
+      gs.tiles.set(sourceXy, { tile: sourceXy, deposit: {}, explored: true, building: source });
+      gs.tiles.set(siteXy, { tile: siteXy, deposit: {}, explored: true, building: site });
+
+      // the site asks for 5/3 per resource, the only source holds 1
+
+      const tick = EmptyTickData();
+      tick.workersAvailable.set("Worker", 1000);
+      tick.resourcesByTile.set("Lumber", [{ tile: sourceXy, amount: 1, usedStoragePercentage: 0 }]);
+      Tick.current = freezeTickData(tick);
+      Tick.next = EmptyTickData();
+      Planner.reset();
+      Transports.length = 0;
+
+      transportAndConsumeResources(siteXy, [], gs, false);
+
+      assert.equal(source.resources.Lumber, 0);
+      assert.equal(Tick.next.constructionConsumptions.get("Lumber"), 1);
+      // There is no source at all for the other two resources
+      assert.equal(Tick.next.constructionConsumptions.get("Iron"), undefined);
+      assert.equal(Tick.next.constructionConsumptions.get("Brick"), undefined);
+
+      // no worker: nothing transported, nothing reported
+      source.resources.Lumber = 1;
+      const noWorker = EmptyTickData();
+      noWorker.workersAvailable.set("Worker", 0);
+      noWorker.resourcesByTile.set("Lumber", [{ tile: sourceXy, amount: 1, usedStoragePercentage: 0 }]);
+      Tick.current = freezeTickData(noWorker);
+      Tick.next = EmptyTickData();
+      Planner.reset();
+
+      transportAndConsumeResources(siteXy, [], gs, false);
+
+      assert.equal(source.resources.Lumber, 1);
+      assert.equal(Tick.next.constructionConsumptions.size, 0);
+   } finally {
+      Transports.length = 0;
+      Tick.current = freezeTickData(EmptyTickData());
+      Tick.next = EmptyTickData();
+      clearIntraTickCache();
+   }
+});
+
+test("getDeficitInput adds construction and upgrade consumption on demand", () => {
+   const io: IResourceIO = {
+      theoreticalInput: new Map<Material, number>([["Brick", 1]]),
+      actualInput: new Map<Material, number>([["Brick", 2]]),
+      theoreticalOutput: new Map<Material, number>(),
+      actualOutput: new Map<Material, number>(),
+      constructionInput: new Map<Material, number>([["Brick", 3]]),
+   };
+   assert.equal(getDeficitInput(io, true, true).get("Brick"), 4);
+   assert.equal(getDeficitInput(io, false, true).get("Brick"), 5);
+   // the recipe input itself is never modified
+   assert.equal(io.theoreticalInput.get("Brick"), 1);
+   assert.equal(io.actualInput.get("Brick"), 2);
+   assert.equal(getDeficitInput(io, true, false).get("Brick"), 1);
+   assert.equal(getDeficitInput(io, false, false).get("Brick"), 2);
+   // nothing to add: the input map is returned as is
+   io.constructionInput.clear();
+   assert.equal(getDeficitInput(io, true, true), io.theoreticalInput);
 });
 
 test("fibonacci", () => {

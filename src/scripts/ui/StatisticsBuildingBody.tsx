@@ -20,6 +20,7 @@ import { ValueToTrack, getTimeSeriesHour } from "../../../shared/logic/GameState
 import { notifyGameStateUpdate } from "../../../shared/logic/GameStateLogic";
 import {
    getBuildingIO,
+   getDeficitInput,
    getFuelByTarget,
    getResourceIO,
    getTransportStat,
@@ -503,9 +504,10 @@ export function ResourcesTab({ gameState }: IBuildingComponentProps): React.Reac
    };
    const [search, setSearch] = useState<string>(savedResourceSearch);
    const [showTheoreticalValue, setShowTheoreticalValue] = useState(true);
+   const [includeConstruction, setIncludeConstruction] = useState(false);
    const unlockedResourcesList: PartialSet<Material> = unlockedResources(gameState, "Koti");
    const io = getResourceIO(gameState);
-   const inputs = showTheoreticalValue ? io.theoreticalInput : io.actualInput;
+   const inputs = getDeficitInput(io, showTheoreticalValue, includeConstruction);
    const outputs = showTheoreticalValue ? io.theoreticalOutput : io.actualOutput;
    const gs = useGameState();
 
@@ -580,6 +582,17 @@ export function ResourcesTab({ gameState }: IBuildingComponentProps): React.Reac
                   <div className="m-icon small">live_tv</div>
                </button>
             </LazyTippy>
+            <LazyTippy content={$t(L.IncludeConstructionInDeficit)}>
+               <button
+                  className={classNames({ active: includeConstruction })}
+                  style={{ width: "2.7rem", padding: 0 }}
+                  onClick={() => {
+                     setIncludeConstruction(!includeConstruction);
+                  }}
+               >
+                  <div className="m-icon small">construction</div>
+               </button>
+            </LazyTippy>
          </div>
          <TableView
             classNames="sticky-header f1"
@@ -642,6 +655,7 @@ export function ResourcesTab({ gameState }: IBuildingComponentProps): React.Reac
                const output = outputs.get(res) ?? 0;
                const input = inputs.get(res) ?? 0;
                const deficit = output - input;
+               const construction = includeConstruction ? (io.constructionInput.get(res) ?? 0) : 0;
                const amount = Tick.current.resourceAmount.get(res) ?? 0;
                const timeLeft = deficit < 0 ? Math.abs((1000 * amount) / deficit) : Number.POSITIVE_INFINITY;
 
@@ -663,10 +677,18 @@ export function ResourcesTab({ gameState }: IBuildingComponentProps): React.Reac
                            <FormatNumber value={deficit} />
                         </div>
                         <LazyTippy
-                           content={$t(L.StatisticsResourcesDeficitDesc, {
-                              output: formatNumber(output),
-                              input: formatNumber(input),
-                           })}
+                           content={
+                              construction > 0
+                                 ? $t(L.StatisticsResourcesDeficitWithConstructionDesc, {
+                                      output: formatNumber(output),
+                                      input: formatNumber(input),
+                                      construction: formatNumber(construction),
+                                   })
+                                 : $t(L.StatisticsResourcesDeficitDesc, {
+                                      output: formatNumber(output),
+                                      input: formatNumber(input),
+                                   })
+                           }
                         >
                            <div className="text-small text-right text-desc">
                               <span className="pointer" onClick={() => highlightResourcesUsed(res, "output")}>

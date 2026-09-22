@@ -891,6 +891,7 @@ export const EN = {
    IMPeiDesc: "+%{value} Builder Capacity Multiplier",
    Imperialism: "Imperialism",
    ImperialPalace: "Imperial Palace",
+   IncludeConstructionInDeficit: "Include Construction & Upgrade in the Deficit",
    Indian: "Indian",
    IndustrialAge: "Industrial Age",
    InformationAge: "Information Age",
@@ -1689,6 +1690,8 @@ export const EN = {
    StatisticsResources: "Resources",
    StatisticsResourcesDeficit: "Deficit",
    StatisticsResourcesDeficitDesc: "Production: %{output} - Consumption: %{input}",
+   StatisticsResourcesDeficitWithConstructionDesc:
+      "Production: %{output} - Consumption: %{input} (including %{construction} for construction & upgrade)",
    StatisticsResourcesRunOut: "Run Out",
    StatisticsResourcesSearchText: "Type a resource name to search",
    StatisticsScience: "Science",

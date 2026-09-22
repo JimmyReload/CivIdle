@@ -39,6 +39,8 @@ interface ITickData {
    storagePercentages: Map<Tile, number>;
    additionalProductions: { xy: Tile; res: Material; amount: number }[];
    additionalConsumptions: { xy: Tile; res: Material; amount: number }[];
+   /** Resources transported to construction/upgrade sites during this tick */
+   constructionConsumptions: Map<Material, number>;
    playerTradeBuildings: Map<Tile, IBuildingData>;
    resourceImportBuildings: Map<Tile, IResourceImportBuildingIndex>;
    globalMultipliers: GlobalMultipliers;
@@ -80,6 +82,7 @@ export function EmptyTickData(): ITickData {
       resourceImportBuildings: new Map(),
       additionalProductions: [],
       additionalConsumptions: [],
+      constructionConsumptions: new Map(),
       specialBuildings: new Map(),
       scienceProduced: new Map(),
       powerGrid: new Set(),
